@@ -1,6 +1,9 @@
-package com.example.dai02;
+package com.example.dai02.leetcode_209;
 
-public class Solution1 {
+/**
+ * 代码随想录day02 大于等于target的最小子数组
+ */
+public class Solution {
     public int minSubArrayLen(int target, int[] nums) {
         int start = 0, end = 0;
         int sum = 0;
