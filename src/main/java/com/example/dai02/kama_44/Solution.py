@@ -2,7 +2,6 @@ def main():
     import sys
     input  = sys.stdin.read
     data = input().split()
-
     idx = 0
     n = int(data[idx])
     idx += 1
