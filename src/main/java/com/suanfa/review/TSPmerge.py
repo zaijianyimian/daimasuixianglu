@@ -1,131 +1,161 @@
-class TspDivideConquer:
-    def __init__(self, graph):
+import heapq
+from typing import List, Tuple
+
+
+class TspBranchBound:
+    def __init__(self, graph: List[List[int]]):
         """
-        初始化TSP分治求解器
+        初始化TSP分支界限求解器
 
         Args:
-            graph: 图的邻接矩阵表示，graph[i][j]表示城市i到城市j的距离
+            graph: 图的邻接矩阵表示
         """
         self.graph = graph
         self.n = len(graph)
         self.inf = float('inf')
 
-    def solveTsp(self) -> float:
+    def reduceMatrix(self, matrix: List[List[float]]) -> Tuple[List[List[float]], float]:
         """
-        解决TSP问题，返回最短路径长度
-
-        Returns:
-            最短哈密顿回路的总距离
-        """
-        cities = list(range(self.n))
-        # 从城市0开始的TSP
-        minPathLength = self.inf
-
-        # 尝试从城市0出发，连接所有城市后回到城市0
-        for endCity in range(1, self.n):
-            # 计算从城市0出发，经过所有城市到endCity的最短路径
-            remainingCities = [city for city in cities if city != endCity]
-            pathLength = self.divideAndConquerTsp([0], remainingCities, endCity)
-
-            # 加上从endCity回到起始城市0的距离
-            if pathLength != self.inf:
-                pathLength += self.graph[endCity][0]
-                minPathLength = min(minPathLength, pathLength)
-
-        return minPathLength if minPathLength != self.inf else -1
-
-    def divideAndConquerTsp(self, visitedPath, remainingCities, targetEndCity):
-        """
-        使用分治思想解决TSP的子问题
+        矩阵约简：将邻接矩阵约简以获得下界
 
         Args:
-            visitedPath: 已经访问的路径
-            remainingCities: 剩余待访问的城市
-            targetEndCity: 目标终点城市
+            matrix: 待约简的矩阵
 
         Returns:
-            从当前路径到目标终点的最短距离
+            约简后的矩阵和约简常数（下界贡献）
         """
-        # 基本情况：如果没有剩余城市，检查是否到达目标终点
-        if not remainingCities:
-            lastCity = visitedPath[-1]
-            return self.graph[lastCity][targetEndCity] if lastCity != targetEndCity else 0
+        reduced_matrix = [row[:] for row in matrix]  # 深拷贝
+        reduction_cost = 0.0
 
-        # 尝试将剩余城市分成两部分
-        if len(remainingCities) == 1:
-            # 只剩一个城市，直接连接
-            nextCity = remainingCities[0]
-            lastVisited = visitedPath[-1]
-            distanceToNext = self.graph[lastVisited][nextCity]
+        # 行约简：每行减去最小值
+        for i in range(len(reduced_matrix)):
+            min_val = self.inf
+            for j in range(len(reduced_matrix[i])):
+                if reduced_matrix[i][j] < min_val:
+                    min_val = reduced_matrix[i][j]
 
-            # 递归处理剩下的路径
-            newPath = visitedPath + [nextCity]
-            newRemaining = [city for city in remainingCities if city != nextCity]
-            subResult = self.divideAndConquerTsp(newPath, newRemaining, targetEndCity)
+            if min_val != self.inf and min_val != 0:
+                reduction_cost += min_val
+                for j in range(len(reduced_matrix[i])):
+                    if reduced_matrix[i][j] != self.inf:
+                        reduced_matrix[i][j] -= min_val
 
-            return distanceToNext + subResult if subResult != self.inf else self.inf
+        # 列约简：每列减去最小值
+        for j in range(len(reduced_matrix[0])):
+            min_val = self.inf
+            for i in range(len(reduced_matrix)):
+                if reduced_matrix[i][j] < min_val:
+                    min_val = reduced_matrix[i][j]
 
-        # 分治策略：选择一个城市加入路径，递归解决剩余问题
-        minDistance = self.inf
+            if min_val != self.inf and min_val != 0:
+                reduction_cost += min_val
+                for i in range(len(reduced_matrix)):
+                    if reduced_matrix[i][j] != self.inf:
+                        reduced_matrix[i][j] -= min_val
 
-        # 尝试将每一个剩余城市作为下一个访问的城市
-        for i, nextCity in enumerate(remainingCities):
-            lastVisited = visitedPath[-1]
+        return reduced_matrix, reduction_cost
 
-            # 计算从最后访问的城市到下一个城市的距离
-            distance = self.graph[lastVisited][nextCity]
-
-            if distance != self.inf:
-                # 更新路径和剩余城市列表
-                newVisitedPath = visitedPath + [nextCity]
-                newRemainingCities = remainingCities[:i] + remainingCities[i + 1:]
-
-                # 递归计算剩余部分的TSP
-                subResult = self.divideAndConquerTsp(newVisitedPath, newRemainingCities, targetEndCity)
-
-                if subResult != self.inf:
-                    totalDistance = distance + subResult
-                    minDistance = min(minDistance, totalDistance)
-
-        return minDistance if minDistance != self.inf else self.inf
-
-    def solveWithAllStartPoints(self) -> float:
+    def calculateLowerBound(self, matrix: List[List[float]], path: List[int]) -> float:
         """
-        尝试从所有可能的起始点解决TSP问题
+        计算当前路径的下界
+
+        Args:
+            matrix: 约简后的邻接矩阵
+            path: 当前已确定的路径
 
         Returns:
-            最短哈密顿回路的总距离
+            下界值
         """
-        minTotalDistance = self.inf
+        # 先对矩阵进行约简
+        reduced_matrix, base_cost = self.reduceMatrix(matrix)
 
-        # 尝试从每个城市开始
-        for startCity in range(self.n):
-            # 重新组织城市列表，使startCity为第一个
-            cities = list(range(self.n))
-            cities.remove(startCity)
-            cities = [startCity] + cities
+        # 计算路径中边的代价
+        path_cost = 0
+        for i in range(len(path) - 1):
+            path_cost += self.graph[path[i]][path[i + 1]]
 
-            # 计算从startCity出发的最短TSP路径
-            remainingCities = cities[1:]
-            minDistance = self.inf
+        return base_cost + path_cost
 
-            for endCity in remainingCities:
-                otherCities = [city for city in remainingCities if city != endCity]
-                pathDistance = self.divideAndConquerTsp([startCity], otherCities, endCity)
+    def branchAndBoundTsp(self) -> Tuple[float, List[int]]:
+        """
+        使用分支界限法求解TSP问题
 
-                if pathDistance != self.inf:
-                    totalDistance = pathDistance + self.graph[endCity][startCity]
-                    minDistance = min(minDistance, totalDistance)
+        Returns:
+            (最短路径长度, 最优路径)
+        """
+        # 初始化距离矩阵，将已访问的路径设为无穷大
+        initial_matrix = [row[:] for row in self.graph]
 
-            if minDistance != self.inf:
-                minTotalDistance = min(minTotalDistance, minDistance)
+        # 优先队列：(下界, 当前路径, 已访问城市集合, 当前代价)
+        pq = []
 
-        return minTotalDistance if minTotalDistance != self.inf else -1
+        # 从城市0开始
+        initial_lower_bound = self.calculateLowerBound(initial_matrix, [0])
+        heapq.heappush(pq, (initial_lower_bound, [0], {0}, 0))
+
+        best_cost = self.inf
+        best_path = []
+
+        while pq:
+            lower_bound, current_path, visited, current_cost = heapq.heappop(pq)
+
+            # 剪枝：如果当前下界已经超过已知最优解，则跳过
+            if lower_bound >= best_cost:
+                continue
+
+            # 如果所有城市都已访问，检查是否能回到起点
+            if len(visited) == self.n:
+                final_cost = current_cost + self.graph[current_path[-1]][0]
+                if final_cost < best_cost:
+                    best_cost = final_cost
+                    best_path = current_path + [0]  # 回到起点
+                continue
+
+            # 分支：尝试访问下一个未访问的城市
+            current_city = current_path[-1]
+            for next_city in range(self.n):
+                if next_city not in visited:
+                    # 创建新的约束矩阵
+                    new_matrix = [row[:] for row in initial_matrix]
+
+                    # 设置已访问路径的边为无穷大
+                    for i in range(len(current_path)):
+                        if i < len(current_path) - 1:
+                            new_matrix[current_path[i]][current_path[i + 1]] = self.inf
+
+                    # 设置不能走的路径为无穷大
+                    for i in range(self.n):
+                        new_matrix[current_city][i] = self.inf  # 从当前城市不能再出发
+                        new_matrix[i][next_city] = self.inf  # 到达下一城市后不能再到达
+
+                    # 计算新的下界
+                    new_path = current_path + [next_city]
+                    new_visited = visited.copy()
+                    new_visited.add(next_city)
+                    new_cost = current_cost + self.graph[current_city][next_city]
+
+                    new_lower_bound = self.calculateLowerBound(new_matrix, new_path)
+
+                    # 如果下界仍然有希望，则加入队列
+                    if new_lower_bound < best_cost:
+                        heapq.heappush(pq, (new_lower_bound, new_path, new_visited, new_cost))
+
+        return best_cost, best_path[:-1]  # 移除重复的起点
+
+    def solve(self) -> Tuple[float, List[int]]:
+        """
+        解决TSP问题的入口函数
+
+        Returns:
+            (最短路径长度, 最优路径)
+        """
+        return self.branchAndBoundTsp()
 
 
-def findOptimalTspPath():
+# 使用示例
+def solveTspWithBranchBound():
     """
-    使用分治算法求解TSP问题的示例
+    使用分支界限法求解TSP问题的示例
     """
     # 示例图：完全图，4个城市
     graph = [
@@ -135,15 +165,29 @@ def findOptimalTspPath():
         [20, 25, 30, 0]  # 从城市3到其他城市的距离
     ]
 
-    tspSolver = TspDivideConquer(graph)
-    result = tspSolver.solveTsp()
+    tspSolver = TspBranchBound(graph)
+    minCost, optimalPath = tspSolver.solve()
 
-    print(f"最短TSP路径长度: {result}")
+    print(f"最短TSP路径长度: {minCost}")
+    print(f"最优路径: {optimalPath}")
 
-    # 测试另一种求解方法
-    result2 = tspSolver.solveWithAllStartPoints()
-    print(f"从所有起始点考虑的最短TSP路径长度: {result2}")
+    # 验证路径
+    if optimalPath:
+        total_distance = 0
+        path_str = ""
+        for i in range(len(optimalPath)):
+            path_str += str(optimalPath[i])
+            if i < len(optimalPath) - 1:
+                path_str += " -> "
+                total_distance += graph[optimalPath[i]][optimalPath[i + 1]]
+        # 加上回到起点的距离
+        total_distance += graph[optimalPath[-1]][optimalPath[0]]
+        path_str += f" -> {optimalPath[0]} (回起点)"
+
+        print(f"路径详情: {path_str}")
+        print(f"总距离（含回起点）: {total_distance}")
 
 
 if __name__ == "__main__":
-    findOptimalTspPath()
+    solveTspWithBranchBound()
+
